@@ -39,14 +39,43 @@ def eval_ll(model, tokenizer, data, batch_size=128, context_len=4096, temperatur
         inputs = tokenizer(batch, return_tensors="pt", padding=True).to("cuda")
         inputs = inputs['input_ids']
         # with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False):
-
+        attention_patterns = []
         if n == 1:
             if temperature == 0.0:
-                outputs = model.generate(input_ids=inputs, pad_token_id=tokenizer.eos_token_id, attention_mask=torch.ones_like(inputs), max_length=context_len, num_beams=1, do_sample=False)
+                outputs = model.generate(
+                    input_ids=inputs,
+                    pad_token_id=tokenizer.eos_token_id,
+                    attention_mask=torch.ones_like(inputs),
+                    max_length=context_len,
+                    num_beams=1,
+                    do_sample=False,
+                    output_attentions=True
+                )
             else:
-                outputs = model.generate(input_ids=inputs, pad_token_id=tokenizer.eos_token_id, attention_mask=torch.ones_like(inputs), max_length=context_len, num_beams=1, do_sample=True, temperature=temperature)
+                outputs = model.generate(
+                    input_ids=inputs,
+                    pad_token_id=tokenizer.eos_token_id,
+                    attention_mask=torch.ones_like(inputs),
+                    max_length=context_len,
+                    num_beams=1,
+                    do_sample=True,
+                    temperature=temperature,
+                    output_attentions=True
+                )
+            
+            # Extract attention patterns
+            attention = outputs.attentions
+            # Map attention patterns to JSON serializable format
+            serializable_attention = []
+            for layer_attention in attention:
+                layer_attention_list = []
+                for head_attention in layer_attention:
+                    head_attention_list = head_attention.cpu().numpy().tolist()
+                    layer_attention_list.append(head_attention_list)
+                serializable_attention.append(layer_attention_list)
+            attention_patterns.append(serializable_attention)
             # split output vector into first N tokens and the rest
-            output_tokens = outputs
+            output_tokens = outputs.logits
             output_text = tokenizer.batch_decode(output_tokens, skip_special_tokens=False)
             tokenizer.padding_side = "left"
             output_texts = [ot + ot_now for ot, ot_now in zip(output_texts, output_text)]
@@ -78,7 +107,7 @@ def eval_ll(model, tokenizer, data, batch_size=128, context_len=4096, temperatur
             # max ratings is batch_size, output_texts is n x batch_size
             output_texts = [all_outputs[max_r][i] for i, max_r in enumerate(max_ratings)]
             output_texts_concat += output_texts
-    return output_texts_concat 
+    return output_texts_concat, attention_patterns
 
 args = parser.parse_args()
 torch.manual_seed(args.seed)
@@ -102,7 +131,7 @@ tokenizer.padding_side = "left"
 test_prompts = [tokenizer.bos_token + f"Current State: {sample['target']}:{sample['nums']}, Operations: []"  for sample in data[args.offset:args.num]]
 len_nums = [len(sample['nums']) for sample in data[args.offset:args.num]]
 data_4 = [d for d, l in zip(test_prompts, len_nums) if l == 4]
-predictions = eval_ll(model, tokenizer, data_4, batch_size=args.batch_size, context_len=args.ctx, temperature=args.temperature, n=args.gens)
+predictions, attention_patterns = eval_ll(model, tokenizer, data_4, batch_size=args.batch_size, context_len=args.ctx, temperature=args.temperature, n=args.gens)
 
 len_pred_nums = [4 for _ in predictions]
 
@@ -130,3 +159,5 @@ ckpt_dir = os.path.dirname(args.ckpt)
 results_file = os.path.join(ckpt_dir, f"results_{args.data.replace('/','_')}_{args.num}_{args.offset}")
 with open(results_file, "w") as f:
     json.dump({"trajectories": predictions, "ratings": pred_ratings.tolist(), "reasons": pred_reasons}, f, indent=4)
+with open(results_file + "_attention.json", "w") as f:
+    json.dump({"attention": attention_patterns}, f, indent=4)
