@@ -66,7 +66,7 @@ def eval_ll(model, tokenizer, data, batch_size=128, context_len=4096, temperatur
                 )
             
             # Extract attention patterns
-            attention = outputs.attentions
+            attention = outputs.attentions.cpu()
             # serializable_attention = []
             # for layer_attention in attention:
             #     layer_attention_list = []
