@@ -67,14 +67,15 @@ def eval_ll(model, tokenizer, data, batch_size=128, context_len=4096, temperatur
             
             # Extract attention patterns
             attention = outputs.attentions
-            serializable_attention = []
-            for layer_attention in attention:
-                layer_attention_list = []
-                for head_attention in layer_attention:
-                    head_attention_list = head_attention.cpu().numpy().tolist()
-                    layer_attention_list.append(head_attention_list)
-                serializable_attention.append(layer_attention_list)
-            attention_patterns.append(serializable_attention)
+            # serializable_attention = []
+            # for layer_attention in attention:
+            #     layer_attention_list = []
+            #     for head_attention in layer_attention:
+            #         head_attention_list = head_attention.cpu().numpy().tolist()
+            #         layer_attention_list.append(head_attention_list)
+            #     serializable_attention.append(layer_attention_list)
+            # attention_patterns.append(serializable_attention)
+            attention_patterns.append(attention)
             # split output vector into first N tokens and the rest
             output_tokens = outputs.sequences
             output_text = tokenizer.batch_decode(output_tokens, skip_special_tokens=False)
@@ -163,6 +164,8 @@ os.makedirs(ckpt_dir, exist_ok=True)
 print(ckpt_dir)
 with open(results_file, "w") as f:
     json.dump({"trajectories": predictions, "ratings": pred_ratings.tolist(), "reasons": pred_reasons}, f, indent=4)
-with open(results_file + "_attention.json", "w") as f:
-    json.dump({"attention": attention_patterns}, f, indent=4)
+# save as pickle
+import pickle
+with open(results_file + "_attention.pkl", "wb") as f:
+    pickle.dump({"attention": attention_patterns}, f)
 
